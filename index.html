@@ -1,0 +1,258 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Quiddler（オンライン対戦版）</title>
+<style>
+:root{--felt:#12343b;--felt2:#0c262c;--ink:#f3ead2;--tile:#f3ead2;--tinkInk:#1d2a2c;--gold:#e0b84a;--mut:#9db8ba;--line:#2c5660;--bad:#e8806a}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html,body{margin:0;background:var(--felt2);color:var(--ink);font:15px/1.5 system-ui,"Hiragino Sans","Yu Gothic",sans-serif}
+body{padding:env(safe-area-inset-top) 0 env(safe-area-inset-bottom)}
+#app{max-width:760px;margin:0 auto;padding:10px 12px 40px;display:flex;flex-direction:column;gap:12px}
+header{display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap}
+h1{margin:0;font:700 20px Georgia,"Hiragino Mincho ProN",serif;letter-spacing:.02em}
+.pill{font-size:12px;color:var(--mut);display:flex;gap:10px;align-items:center}
+button,select,input{font:inherit;color:inherit;background:var(--felt);border:1px solid var(--line);border-radius:8px;padding:8px 12px;cursor:pointer;touch-action:manipulation}
+button:disabled{opacity:.35;cursor:default}
+button.go{background:var(--gold);color:#241c05;border-color:var(--gold);font-weight:700}
+button:focus-visible,.tile:focus-visible{outline:3px solid var(--gold);outline-offset:2px}
+.panel{background:var(--felt);border:1px solid var(--line);border-radius:12px;padding:12px}
+.players{display:grid;grid-template-columns:repeat(auto-fit,minmax(104px,1fr));gap:8px}
+.pl{border:1px solid var(--line);border-radius:10px;padding:6px 10px;background:var(--felt2)}
+.pl.turn{border-color:var(--gold);box-shadow:0 0 0 2px var(--gold) inset}
+.pl b{display:block;font-size:13px}.pl span{font-size:12px;color:var(--mut)}
+.pl .sc{font:700 20px Georgia,serif;color:var(--ink)}
+.msg{font-size:15px}.err{color:var(--bad);font-size:13px;min-height:18px}
+.table{display:flex;gap:18px;align-items:center;justify-content:center;padding:6px 0}
+.tile{width:46px;height:58px;border-radius:7px;background:var(--tile);color:var(--tinkInk);border:0;padding:0;position:relative;font:700 24px Georgia,serif;box-shadow:0 2px 0 #b9ab84,0 3px 6px rgba(0,0,0,.35);display:inline-flex;align-items:center;justify-content:center}
+.tile i{position:absolute;right:4px;bottom:2px;font:600 10px system-ui;font-style:normal;color:#6b5f3e}
+.tile.sel{transform:translateY(-8px);outline:3px solid var(--gold)}
+.tile.back{background:repeating-linear-gradient(45deg,#2c5660 0 6px,#244a53 6px 12px);color:var(--ink);font:600 12px system-ui;box-shadow:0 2px 0 #0c262c}
+.tile.big{width:56px;height:70px;font-size:28px}
+.tile.lbl{flex-direction:column;gap:2px}
+.row{display:flex;flex-wrap:wrap;gap:6px;align-items:center}
+.word{display:flex;gap:4px;align-items:center;background:var(--felt2);border:1px solid var(--line);border-radius:10px;padding:6px}
+.word .t{width:34px;height:44px;font-size:18px;box-shadow:0 1px 0 #b9ab84}
+.word .t i{font-size:8px}
+.word small{color:var(--mut);margin-left:4px}
+h3{margin:0 0 8px;font:700 14px system-ui;color:var(--mut)}
+.log{font-size:12px;color:var(--mut);max-height:96px;overflow:auto}
+table{width:100%;border-collapse:collapse;font-size:13px}
+td,th{padding:6px 4px;border-bottom:1px solid var(--line);text-align:left;vertical-align:top}
+.modal{position:fixed;inset:0;background:rgba(0,0,0,.6);display:flex;align-items:center;justify-content:center;padding:16px;z-index:9}
+.modal .panel{max-width:380px;width:100%;display:flex;flex-direction:column;gap:10px;background:var(--felt)}
+.modal input,.modal select{width:100%}
+@media(prefers-reduced-motion:no-preference){.tile{transition:transform .12s}}
+</style>
+</head>
+<body>
+<div id="app">
+  <header>
+    <h1>Quiddler</h1>
+    <div class="pill"><span id="ping">⚪ 未接続</span><span id="roomL"></span>
+      <label>自席 <select id="seatSel"><option value="0">P1</option><option value="1">P2</option><option value="2">P3</option><option value="3">P4</option><option value="4">P5</option><option value="5">P6</option><option value="-1">観戦</option></select></label></div>
+  </header>
+  <div id="view"></div>
+</div>
+<script>
+// ===== 定数 =====
+const GAME='quiddler'; // サーバーの部屋名の接頭辞（他ゲームと部屋が混ざらないようにする）
+const HOST='catan.shoma-molmotto.workers.dev';
+const PTS={A:2,B:8,C:8,D:5,E:2,F:6,G:6,H:7,I:2,J:13,K:8,L:3,M:5,N:5,O:2,P:6,Q:15,R:5,S:3,T:3,U:4,V:11,W:10,X:12,Y:4,Z:14,Cl:10,Er:7,Qu:9,In:7,Th:9};
+const CNT={A:10,B:2,C:2,D:4,E:12,F:2,G:4,H:2,I:8,J:2,K:2,L:4,M:2,N:6,O:8,P:2,Q:2,R:6,S:4,T:6,U:6,V:2,W:2,X:2,Y:4,Z:2,Cl:2,Er:2,Qu:2,In:2,Th:2};
+const $=id=>document.getElementById(id);
+const sum=a=>a.reduce((t,c)=>t+PTS[c],0);
+const shuffle=a=>{for(let i=a.length-1;i>0;i--){const j=Math.floor(Math.random()*(i+1));[a[i],a[j]]=[a[j],a[i]];}return a;};
+
+// ===== ゲームロジック =====
+function deal(s){
+  const all=[];for(const k in CNT)for(let i=0;i<CNT[k];i++)all.push(k);
+  s.deck=shuffle(all);
+  s.hands=Array.from({length:s.n},()=>s.deck.splice(0,s.round+2));
+  s.discard=[s.deck.pop()];
+  s.turn=(s.round-1)%s.n;s.phase='draw';s.goer=null;s.left=0;
+  s.arr=Array(s.n).fill(null);s.rest=Array(s.n).fill(null);s.res=null;
+}
+function newGame(n){
+  const s={n,round:1,total:Array(n).fill(0),log:[`ゲーム開始（${n}人）`]};
+  deal(s);return s;
+}
+function nextTurn(s){s.turn=(s.turn+1)%s.n;s.phase='draw';}
+function score(s){
+  const rows=s.arr.map((w,p)=>{w=w||[];return{p,w,wp:w.reduce((t,x)=>t+sum(x),0),pen:sum(s.rest[p]||[]),bl:0,bm:0};});
+  const bonus=(f,k)=>{const v=rows.map(f),m=Math.max(...v);if(m>0&&v.filter(x=>x===m).length===1)rows[v.indexOf(m)][k]=10;};
+  bonus(r=>Math.max(0,...r.w.map(x=>x.join('').length)),'bl');
+  bonus(r=>r.w.length,'bm');
+  rows.forEach(r=>{r.net=r.wp-r.pen+r.bl+r.bm;s.total[r.p]+=r.net;});
+  s.res=rows;s.phase=s.round>=8?'over':'roundEnd';
+  s.log.unshift(`ラウンド${s.round}終了`);
+}
+function reduce(s,a){
+  const p=s.turn,h=s.hands[p],log=m=>s.log.unshift(`[P${p+1}] ${m}`);
+  if(a.t==='next'){
+    if(s.phase!=='roundEnd')return'まだ次へ進めません';
+    s.round++;deal(s);s.log.unshift(`── ラウンド${s.round}（${s.round+2}枚）──`);return;
+  }
+  if(s.phase==='over'||s.phase==='roundEnd')return'ラウンドは終了しています';
+  if(a.t==='draw'){
+    if(s.phase!=='draw')return'すでにカードを引いています';
+    let c;
+    if(a.src==='deck'){
+      if(!s.deck.length){const top=s.discard.pop();s.deck=shuffle(s.discard);s.discard=[top];}
+      c=s.deck.pop();
+    }else{c=s.discard.pop();if(!c)return'捨て札がありません';}
+    h.push(c);s.phase='play';
+    log(a.src==='deck'?'が山札から引いた':`が捨て札(${c})を取った`);return;
+  }
+  if(s.phase!=='play')return'先にカードを引いてください';
+  if(a.t==='discard'){
+    if(s.goer!=null)return'最終ターンは「確定」を使います';
+    if(!(a.i>=0&&a.i<h.length))return'捨てるカードを選んでください';
+    const [c]=h.splice(a.i,1);s.discard.push(c);log(`が ${c} を捨てた`);nextTurn(s);return;
+  }
+  const used=new Set(),gs=a.groups||[];
+  for(const g of gs){
+    if(g.length<2)return'ことばは2枚以上で作ります';
+    for(const i of g){if(used.has(i)||!(i>=0&&i<h.length))return'カードの指定が不正です';used.add(i);}
+  }
+  const free=h.map((_,i)=>i).filter(i=>!used.has(i));
+  if(a.t==='out'){
+    if(s.goer!=null)return'すでに誰かがあがっています';
+    if(!gs.length)return'ことばを作ってください';
+    if(free.length>1)return'あがるには、ことばに入れないカードを1枚以下にしてください';
+    s.arr[p]=gs.map(g=>g.map(i=>h[i]));s.rest[p]=[];
+    if(free.length)s.discard.push(h[free[0]]);
+    s.goer=p;s.left=s.n-1;log('があがった！他の人は最後の1手番です');nextTurn(s);return;
+  }
+  if(a.t==='final'){
+    if(s.goer==null||p===s.goer)return'今は使えません';
+    s.arr[p]=gs.map(g=>g.map(i=>h[i]));s.rest[p]=free.map(i=>h[i]);
+    s.left--;log('が最終ターンを終えた');
+    if(s.left===0)score(s);else nextTurn(s);return;
+  }
+}
+
+// ===== 通信 =====
+let G=null,ws=null,room='room1',mySeat=+(localStorage.getItem('qd_seat')??0),retries=0,timer=null;
+let sel=new Set(),groups=[],chk={},err='',lastRound=0;
+function connect(r,init){
+  room=r;if(timer){clearTimeout(timer);timer=null;}
+  ws=new WebSocket(`wss://${HOST}/?room=${encodeURIComponent(GAME+':'+r)}`);
+  const t0=Date.now();
+  ws.onopen=()=>{$('ping').textContent=`🟢 接続済 (${Date.now()-t0}ms)`;$('roomL').textContent=`Room: ${r}`;retries=0;
+    ws.send(JSON.stringify(init?{type:'init',state:init}:{type:'get'}));};
+  ws.onmessage=e=>{try{const d=JSON.parse(e.data);if(d.state){G=d.state;render();}}catch(x){console.error(x);}};
+  ws.onerror=()=>{$('ping').textContent='🔴 エラー';};
+  ws.onclose=()=>{
+    if(!G)return;
+    if(++retries>6){$('ping').textContent='⚪ 切断（ページを更新してください）';return;}
+    $('ping').textContent=`⚪ 再接続中 (${retries}/6)`;
+    timer=setTimeout(()=>connect(room),Math.min(1000*2**(retries-1),20000));
+  };
+}
+function act(a){
+  const e=reduce(G,a);err=e||'';
+  if(!e){sel.clear();if(['discard','out','final','next'].includes(a.t))groups=[];}
+  render();
+  if(!e&&ws&&ws.readyState===1)ws.send(JSON.stringify({type:'action',action:a,state:G}));
+}
+
+// ===== 描画 =====
+const tl=(c,cls='',i)=>`<button class="tile ${cls}" ${i!=null?`data-i="${i}"`:''}>${c}<i>${PTS[c]}</i></button>`;
+const tw=c=>`<span class="tile t">${c}<i>${PTS[c]}</i></span>`;
+function render(){
+  const v=$('view');
+  if(!G){
+    v.innerHTML=`<div class="modal"><div class="panel">
+      <h2 style="margin:0;font:700 18px Georgia,serif">Quiddler</h2>
+      <label>部屋名<input id="roomIn" value="room1"></label>
+      <label>あなたの席<select id="seatIn">${[0,1,2,3,4,5].map(i=>`<option value="${i}" ${mySeat===i?'selected':''}>P${i+1}</option>`).join('')}<option value="-1" ${mySeat===-1?'selected':''}>観戦</option></select></label>
+      <button class="go" id="join">部屋に接続する</button>
+      <div style="color:var(--mut);font-size:13px">新しくゲームを始める人数:</div>
+      <div class="row">${[2,3,4,5,6].map(n=>`<button data-new="${n}" style="flex:1">${n}人</button>`).join('')}</div>
+    </div></div>`;return;
+  }
+  const s=G,p=s.turn,mine=mySeat>=0&&mySeat<s.n,myTurn=mine&&p===mySeat;
+  if(s.round!==lastRound){lastRound=s.round;groups=[];sel.clear();}
+  $('seatSel').value=String(mySeat);
+  const hand=mine?s.hands[mySeat]:[];
+  groups=groups.filter(g=>g.every(i=>i<hand.length));
+  const inG=new Set(groups.flat()),free=hand.map((_,i)=>i).filter(i=>!inG.has(i));
+  [...sel].forEach(i=>{if(inG.has(i)||i>=hand.length)sel.delete(i);});
+
+  let status='';
+  if(s.phase==='draw')status=myTurn?'山札か捨て札からカードを1枚引く':`P${p+1} が引く番です`;
+  else if(s.phase==='play')status=myTurn?(s.goer!=null?'ことばを作って確定（最後の手番）':'ことばを考えて、1枚捨てる（またはあがる）'):`P${p+1} が考え中…`;
+  else if(s.phase==='roundEnd')status='ラウンド終了';else status='ゲーム終了';
+  if(s.goer!=null&&s.phase!=='roundEnd'&&s.phase!=='over')status=`🚩 P${s.goer+1} があがりました。` + status;
+
+  const players=s.hands.map((h,i)=>`<div class="pl ${i===p&&s.phase!=='roundEnd'&&s.phase!=='over'?'turn':''}"><b>P${i+1}${i===mySeat?'（あなた）':''}</b><span class="sc">${s.total[i]}</span><span> 手札${h.length}</span></div>`).join('');
+
+  let main='';
+  if(s.phase==='roundEnd'||s.phase==='over'){
+    main=`<div class="panel"><h3>ラウンド${s.round}の結果</h3><table><tr><th>席</th><th>ことば</th><th>計</th></tr>`+
+      s.res.map(r=>`<tr><td>P${r.p+1}</td><td>${r.w.map(x=>x.join('')).join(', ')||'—'}<br><small style="color:var(--mut)">ことば+${r.wp} / 残り-${r.pen}${r.bl?' / 最長+10':''}${r.bm?' / 最多+10':''}</small></td><td><b>${r.net>=0?'+':''}${r.net}</b></td></tr>`).join('')+`</table>`+
+      (s.phase==='over'?`<h3 style="margin-top:12px">最終結果</h3><div class="row">${s.total.map((t,i)=>({t,i})).sort((a,b)=>b.t-a.t).map((x,k)=>`<span class="pl">${k+1}位 P${x.i+1}: <b>${x.t}</b>点</span>`).join('')}</div>`:`<button class="go" data-a="next" style="margin-top:10px">次のラウンドへ（${s.round+3}枚）</button>`)+`</div>`;
+  }else{
+    const top=s.discard[s.discard.length-1];
+    main=`<div class="panel"><div class="table">
+      <div style="text-align:center"><button class="tile big back lbl" data-a="deck" ${myTurn&&s.phase==='draw'?'':'disabled'}>山札<span>${s.deck.length}</span></button></div>
+      <div style="text-align:center">${top?`<button class="tile big" data-a="disc" ${myTurn&&s.phase==='draw'?'':'disabled'}>${top}<i>${PTS[top]}</i></button>`:''}<div style="font-size:11px;color:var(--mut)">捨て札</div></div>
+    </div></div>`;
+  }
+
+  let handHtml='';
+  if(mine&&s.phase!=='roundEnd'&&s.phase!=='over'){
+    const canPlay=myTurn&&s.phase==='play';
+    handHtml=`<div class="panel"><h3>あなたの手札（タップで選択 → ことばにする）</h3>
+      <div class="row" style="margin:8px 0">${groups.map((g,gi)=>{const w=g.map(i=>hand[i]).join('');return`<div class="word">${g.map(i=>tw(hand[i])).join('')}<small>${sum(g.map(i=>hand[i]))}点 ${chk[w.toLowerCase()]||''}</small><button data-ung="${gi}" style="padding:2px 8px">✕</button></div>`;}).join('')||'<span style="color:var(--mut);font-size:13px">まだことばがありません</span>'}</div>
+      <div class="row" style="min-height:70px;padding-top:10px">${free.map(i=>tl(hand[i],sel.has(i)?'sel':'',i)).join('')}</div>
+      <div class="row" style="margin-top:10px">
+        <button data-a="mk" ${sel.size>=2?'':'disabled'}>選んだカードをことばにする</button>
+        <button data-a="chk" ${groups.length?'':'disabled'}>辞書で確認</button>
+        ${canPlay&&s.goer==null?`<button class="go" data-a="disc1" ${sel.size===1?'':'disabled'}>1枚捨てて終了</button><button class="go" data-a="out" ${groups.length&&free.length<=1?'':'disabled'}>あがる</button>`:''}
+        ${canPlay&&s.goer!=null?`<button class="go" data-a="fin">ことばを確定して終了</button>`:''}
+      </div></div>`;
+  }
+  v.innerHTML=`<div class="panel"><div class="players">${players}</div></div>
+    <div class="msg">${status}</div><div class="err">${err}</div>${main}${handHtml}
+    <div class="panel"><h3>ログ</h3><div class="log">${s.log.slice(0,30).map(l=>`<div>${l}</div>`).join('')}</div></div>`;
+}
+async function checkWords(){
+  for(const g of groups){
+    const w=g.map(i=>G.hands[mySeat][i]).join('').toLowerCase();
+    if(w in chk)continue;chk[w]='…';render();
+    try{const r=await fetch('https://api.dictionaryapi.dev/v2/entries/en/'+encodeURIComponent(w));chk[w]=r.ok?'✅':'❌';}catch(e){chk[w]='？';}
+  }
+  render();
+}
+
+// ===== 操作 =====
+$('view').addEventListener('click',e=>{
+  const n=e.target.closest('[data-new]');
+  if(n){mySeat=+$('seatIn').value;localStorage.setItem('qd_seat',mySeat);
+    G=newGame(+n.dataset.new);connect($('roomIn').value.trim()||'room1',G);render();return;}
+  if(e.target.id==='join'){mySeat=+$('seatIn').value;localStorage.setItem('qd_seat',mySeat);
+    connect($('roomIn').value.trim()||'room1',null);return;}
+  if(!G)return;
+  const t=e.target.closest('[data-i]');
+  if(t){const i=+t.dataset.i;sel.has(i)?sel.delete(i):sel.add(i);render();return;}
+  const u=e.target.closest('[data-ung]');
+  if(u){groups.splice(+u.dataset.ung,1);render();return;}
+  const b=e.target.closest('[data-a]');if(!b||b.disabled)return;
+  const a=b.dataset.a;
+  if(a==='deck')act({t:'draw',src:'deck'});
+  else if(a==='disc')act({t:'draw',src:'discard'});
+  else if(a==='mk'){groups.push([...sel].sort((x,y)=>x-y));sel.clear();render();}
+  else if(a==='chk')checkWords();
+  else if(a==='disc1')act({t:'discard',i:[...sel][0]});
+  else if(a==='out')act({t:'out',groups});
+  else if(a==='fin')act({t:'final',groups});
+  else if(a==='next')act({t:'next'});
+});
+$('seatSel').addEventListener('change',e=>{mySeat=+e.target.value;localStorage.setItem('qd_seat',mySeat);render();});
+render();
+</script>
+</body>
+</html>
